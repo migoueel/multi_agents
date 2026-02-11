@@ -1,0 +1,15 @@
+# Include scaffold templates
+recursive-include agent_maestro/scaffold *.yaml *.md
+include agent_maestro/scaffold/config.yaml
+recursive-include agent_maestro/scaffold/agents *.md
+
+# Include documentation
+include README.md
+include LICENSE
+include CONTRIBUTING.md
+include SETUP_GUIDE.md
+include PUBLISHING.md
+include AGENTS.md
+
+# Include config examples
+include config.example.yaml

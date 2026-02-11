@@ -1,7 +1,7 @@
 # Agent Maestro — Multi-Agent Task Orchestration
 # Delegates atomic tasks from an orchestrator to sub-agents via a file-based queue.
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .protocol import Task, TaskStatus, TaskAction, RunResult
 from .queue import TaskQueue
