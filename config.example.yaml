@@ -1,0 +1,26 @@
+# Example configuration for agent-maestro
+# Copy this to `config.yaml` and update values for your environment.
+# Do NOT commit secrets or machine-specific absolute paths.
+
+bridge:
+  poll_interval_seconds: 3
+  max_concurrent_tasks: 1
+  task_timeout_seconds: 300
+  agent_bridge_dir: ".agent_bridge"  # relative to project root
+
+runners:
+  default: copilot-cli
+  copilot_cli:
+    # Path to the Copilot CLI executable. On Windows this might be:
+    # C:\\path\\to\\copilot.bat
+    command: copilot
+    model: gpt-5-mini
+    allow_all_tools: true
+    extra_args: []
+
+project:
+  root: '.'
+
+# To customize: copy this file to `config.yaml` in the project root and edit values.
+# agent-maestro loads configuration from `config.yaml` at project startup.
+# Do NOT commit secrets; use env vars or a secret store for sensitive values.

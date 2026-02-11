@@ -1,0 +1,47 @@
+# Agent bridge task queue (runtime data)
+.agent_bridge/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Build/tooling
+.tox/
+.eggs/
+pip-wheel-metadata/
+*.egg
+.mypy_cache/
+
+# Virtualenvs
+env/
+.env
+.env.local
+
+# Local config overrides
+# If you keep machine-specific paths (e.g. copilot.bat) in a config file,
+# prefer `config.example.yaml` in the repo and ignore local overrides below.
+config.yaml
+config.local.yaml
+
+# Editor folders
+.idea/
+
