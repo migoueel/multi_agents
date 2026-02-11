@@ -5,12 +5,12 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> 🎼 Multi-agent task orchestration — delegate work from an orchestrator to specialized sub-agents via a file-based queue.
+> 🎼 Multi-agent task orchestration — delegate work from an orchestrator to specialized sub-agents via a file-based queue. Use one agent (the orchestrator) to interact with. He breaks down tasks into atomic tasks that can be given to specialized sub-agents. Allowing to keep the context window of the main agent cleaner and more accurate. Also allows to use less tokens from smarter models (e.g. Claude Opus 4.6) by delegating easy tasks to "dumber" models (e.g. GPT-5 mini), avoiding rate limits and getting better results.
 
 ## Architecture
 
 ```
-Orchestrator (Antigravity) → maestro delegate → .agent_bridge/pending/ → watcher → Copilot CLI → .agent_bridge/completed/
+Orchestrator (any agent on any IDE) → maestro delegate → .agent_bridge/pending/ → watcher → Copilot CLI → .agent_bridge/completed/
                                                                                       ↓
                                                                             --agent <name>
                                                                                       ↓
@@ -24,9 +24,9 @@ Agent Maestro leverages VS Code Copilot's [custom agents](https://code.visualstu
 | Agent | Role | Handoffs |
 |-------|------|----------|
 | **Orchestrator** | Plan tasks, coordinate sub-agents | → Implementer, Tester, Reviewer |
-| **Implementer** | Write code changes | (worker) |
-| **Tester** | Write and run tests | (worker) |
-| **Reviewer** | Read-only code review | (worker) |
+| **Implementer** | Write code changes | (sub-agent) |
+| **Tester** | Write and run tests | (sub-agent) |
+| **Reviewer** | Read-only code review | (sub-agent) |
 
 Agent definitions live in `.github/agents/` and are routed via `--agent <name>` when the watcher invokes Copilot CLI.
 
