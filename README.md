@@ -1,5 +1,10 @@
 # Agent Maestro
 
+[![Tests](https://github.com/migoueel/multi_agents/actions/workflows/test.yml/badge.svg)](https://github.com/migoueel/multi_agents/actions/workflows/test.yml)
+[![PyPI version](https://badge.fury.io/py/agent-maestro.svg)](https://badge.fury.io/py/agent-maestro)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 > 🎼 Multi-agent task orchestration — delegate work from an orchestrator to specialized sub-agents via a file-based queue.
 
 ## Architecture
@@ -25,14 +30,35 @@ Agent Maestro leverages VS Code Copilot's [custom agents](https://code.visualstu
 
 Agent definitions live in `.github/agents/` and are routed via `--agent <name>` when the watcher invokes Copilot CLI.
 
+## Installation
+
+### Option 1: From PyPI (Recommended)
+
+```bash
+pip install agent-maestro
+```
+
+### Option 2: From GitHub (Latest)
+
+```bash
+pip install git+https://github.com/migoueel/multi_agents.git
+```
+
+### Option 3: For Development
+
+```bash
+git clone https://github.com/migoueel/multi_agents.git
+cd multi_agents
+pip install -e ".[dev]"
+```
+
 ## Quick Start
 
 ```bash
-# 1. Install the package
-pip install -e ".[dev]"
-
-# 2. Scaffold config + custom agents
+# 1. Scaffold config + custom agents (in your project)
 maestro init
+
+# 2. (Optional) Edit config.yaml and .github/agents/*.agent.md
 
 # 3. Start the watcher daemon
 maestro start

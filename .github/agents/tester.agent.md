@@ -6,6 +6,9 @@ tools:
   - terminal
   - search
   - read
+  - execute/getTerminalOutput
+  - execute/testFailure
+  - todos
 model: gpt-5-mini
 user-invokable: false
 ---

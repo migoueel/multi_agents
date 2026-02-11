@@ -11,15 +11,6 @@ tools:
   - todos
 model: gpt-5-mini
 user-invokable: false
-handoffs:
-  - label: Start Testing
-    agent: tester
-    prompt: 'Write and execute tests for the implemented changes.'
-    send: true
-  - label: Request Review
-    agent: reviewer
-    prompt: 'Review the implemented changes for quality and correctness.'
-    send: true
 ---
 
 # Implementer Agent

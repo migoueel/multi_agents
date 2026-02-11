@@ -9,9 +9,39 @@ description = "Multi-agent task orchestration — delegate work from an orchestr
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
+authors = [
+    {name = "migoueel", email = "migoueel@users.noreply.github.com"}
+]
+keywords = [
+    "agent",
+    "orchestration",
+    "copilot",
+    "vscode",
+    "automation",
+    "multi-agent",
+    "task-queue",
+    "ai-agents"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Code Generators",
+]
 dependencies = [
     "PyYAML>=6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/migoueel/multi_agents"
+Repository = "https://github.com/migoueel/multi_agents"
+Issues = "https://github.com/migoueel/multi_agents/issues"
+Documentation = "https://github.com/migoueel/multi_agents#readme"
 
 [project.scripts]
 maestro = "agent_maestro.cli:main"
