@@ -25,53 +25,72 @@ def _get_scaffold_dir() -> Path:
 
 
 def cmd_init(args: argparse.Namespace) -> None:
-    """Scaffold a new project with Agent Maestro config and custom agents."""
+    """Scaffold a new project with Agent Maestro config and custom agents.
+
+    File operations are wrapped to provide friendly messages on permission errors.
+    """
     project_root = Path(args.project_root).resolve()
     scaffold_dir = _get_scaffold_dir()
 
     print(f"🎼 Initializing Agent Maestro in {project_root}")
 
-    # 1. Create .agent_bridge directories
-    bridge_dir = project_root / ".agent_bridge"
-    for subdir in ("pending", "running", "completed", "failed"):
-        (bridge_dir / subdir).mkdir(parents=True, exist_ok=True)
-    print(f"  ✅ Created {bridge_dir.relative_to(project_root)}/")
+    try:
+        # 1. Create .agent_bridge directories
+        bridge_dir = project_root / ".agent_bridge"
+        for subdir in ("pending", "running", "completed", "failed"):
+            (bridge_dir / subdir).mkdir(parents=True, exist_ok=True)
+        print(f"  ✅ Created {bridge_dir.relative_to(project_root)}/")
 
-    # 2. Copy config.yaml (if it doesn't exist)
-    config_dest = project_root / "config.yaml"
-    config_src = scaffold_dir / "config.yaml"
-    if not config_dest.exists() and config_src.exists():
-        shutil.copy2(config_src, config_dest)
-        print(f"  ✅ Created config.yaml")
-    elif config_dest.exists():
-        print(f"  ⏭️  config.yaml already exists — skipped")
+        # 2. Copy config.yaml (if it doesn't exist)
+        config_dest = project_root / "config.yaml"
+        config_src = scaffold_dir / "config.yaml"
+        if not config_dest.exists() and config_src.exists():
+            shutil.copy2(config_src, config_dest)
+            print(f"  ✅ Created config.yaml")
+        elif config_dest.exists():
+            print(f"  ⏭️  config.yaml already exists — skipped")
 
-    # 3. Copy custom agent definitions
-    agents_dest = project_root / ".github" / "agents"
-    agents_src = scaffold_dir / "agents"
-    agents_dest.mkdir(parents=True, exist_ok=True)
+        # 3. Copy custom agent definitions
+        agents_dest = project_root / ".github" / "agents"
+        agents_src = scaffold_dir / "agents"
+        agents_dest.mkdir(parents=True, exist_ok=True)
 
-    if agents_src.exists():
-        for agent_file in agents_src.glob("*.agent.md"):
-            dest_file = agents_dest / agent_file.name
-            if not dest_file.exists():
-                shutil.copy2(agent_file, dest_file)
-                print(f"  ✅ Created .github/agents/{agent_file.name}")
-            else:
-                print(f"  ⏭️  .github/agents/{agent_file.name} already exists — skipped")
+        if agents_src.exists():
+            for agent_file in agents_src.glob("*.agent.md"):
+                dest_file = agents_dest / agent_file.name
+                if not dest_file.exists():
+                    shutil.copy2(agent_file, dest_file)
+                    print(f"  ✅ Created .github/agents/{agent_file.name}")
+                else:
+                    print(f"  ⏭️  .github/agents/{agent_file.name} already exists — skipped")
 
-    print()
-    print("🎵 Agent Maestro is ready!")
-    print("   Next steps:")
-    print("   1. Edit config.yaml with your Copilot CLI path")
-    print("   2. Customize .github/agents/ for your workflow")
-    print("   3. Run: maestro start")
+        print()
+        print("🎵 Agent Maestro is ready!")
+        print("   Next steps:")
+        print("   1. Edit config.yaml with your Copilot CLI path")
+        print("   2. Customize .github/agents/ for your workflow")
+        print("   3. Run: maestro start")
+    except PermissionError as e:
+        print(f"❌ Permission error while initializing {project_root}: {e}", file=sys.stderr)
+        print("   Try running with elevated permissions or choose a writable directory.", file=sys.stderr)
+        sys.exit(1)
+    except OSError as e:
+        print(f"❌ Error while initializing {project_root}: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_start(args: argparse.Namespace) -> None:
     """Start the watcher daemon."""
     from .watcher import main as watcher_main
-    watcher_main()
+    try:
+        watcher_main()
+    except PermissionError as e:
+        print(f"❌ Permission error starting watcher: {e}", file=sys.stderr)
+        print("   Ensure the process can create files/sockets in the project directory.", file=sys.stderr)
+        sys.exit(1)
+    except OSError as e:
+        print(f"❌ Error starting watcher: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_delegate(args: argparse.Namespace) -> None:
@@ -98,6 +117,32 @@ def cmd_delegate(args: argparse.Namespace) -> None:
     print(f"   Track with: maestro status {task.id}")
 
 
+def cmd_retry(args: argparse.Namespace) -> None:
+    """Retry a failed task with updated instructions."""
+    from . import retry_task
+
+    try:
+        task = retry_task(
+            args.task_id,
+            instructions=args.instructions,
+            project_root=args.project_root,
+        )
+    except FileNotFoundError:
+        print(f"❓ Task {args.task_id} not found")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
+
+    print(f"🔁 Task retried: {task}")
+    print(f"  New ID:      {task.id}")
+    if task.agent_type:
+        print(f"  Agent:       @{task.agent_type}")
+    print(f"  Files:       {', '.join(task.target_files) or '(none)'}")
+    print()
+    print(f"  Track with: maestro status {task.id}")
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     """Check the status of a task."""
     from . import check_status
@@ -115,7 +160,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     if task.completed_at:
         print(f"  Completed:   {task.completed_at}")
     if task.result:
-        print(f"  Result:      {task.result[:200]}")
+        print(f"  Result:      {str(task.result)[:200]}")
     if task.error:
         print(f"  Error:       {task.error}")
 
@@ -208,7 +253,7 @@ def main() -> None:
     )
     delegate_parser.add_argument(
         "--agent-type", "-t", default="",
-        help="Custom agent to route to: orchestrator, implementer, tester, reviewer"
+        help="Custom agent to route to: tester, reviewer (empty = default agent)"
     )
     delegate_parser.add_argument(
         "--context", "-c", default="",
@@ -220,7 +265,18 @@ def main() -> None:
     )
     delegate_parser.set_defaults(func=cmd_delegate)
 
-    # ── status ────────────────────────────────────────────────────────
+    # ── retry ─────────────────────────────────────────────────────────
+    retry_parser = subparsers.add_parser(
+        "retry", help="Retry a failed task with updated instructions"
+    )
+    retry_parser.add_argument("task_id", help="ID of the failed task to retry")
+    retry_parser.add_argument(
+        "--instructions", "-i", required=True,
+        help="New instructions for the retried task"
+    )
+    retry_parser.set_defaults(func=cmd_retry)
+
+    # ── status────────────────────────────────────────────────────────
     status_parser = subparsers.add_parser(
         "status", help="Check task status"
     )

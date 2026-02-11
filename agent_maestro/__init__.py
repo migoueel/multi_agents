@@ -6,6 +6,7 @@ __version__ = "0.1.0"
 from .protocol import Task, TaskStatus, TaskAction, RunResult
 from .queue import TaskQueue
 from .watcher import BridgeWatcher
+from pathlib import Path
 
 __all__ = [
     "Task",
@@ -25,7 +26,7 @@ def delegate_task(
     agent_type: str = "",
     context: str = "",
     priority: int = 0,
-    project_root: str | None = None,
+    project_root: str | Path | None = None,
 ) -> Task:
     """
     Create a new task and add it to the pending queue.
@@ -50,6 +51,8 @@ def delegate_task(
 
     if project_root is None:
         project_root = str(Path.cwd())
+    else:
+        project_root = str(Path(project_root))
 
     cfg = load_config(project_root)
     bridge_dir = Path(project_root) / cfg.get("bridge", {}).get(
@@ -68,13 +71,57 @@ def delegate_task(
     return task
 
 
-def check_status(task_id: str, project_root: str | None = None) -> Task | None:
+def retry_task(
+    task_id: str,
+    instructions: str,
+    project_root: str | Path | None = None,
+) -> Task:
+    """
+    Retry a failed task by creating a new PENDING task with updated instructions.
+    """
+    from pathlib import Path
+    from .config import load_config
+
+    if project_root is None:
+        project_root = str(Path.cwd())
+    else:
+        project_root = str(Path(project_root))
+
+    cfg = load_config(project_root)
+    bridge_dir = Path(project_root) / cfg.get("bridge", {}).get(
+        "agent_bridge_dir", ".agent_bridge"
+    )
+    queue = TaskQueue(bridge_dir)
+
+    orig = queue.get_task(task_id)
+    if orig is None:
+        raise FileNotFoundError(f"Task {task_id} not found")
+    if orig.status != TaskStatus.FAILED:
+        raise ValueError(
+            f"Task {task_id} is {orig.status.value}, expected FAILED"
+        )
+
+    new_task = queue.create_task(
+        instructions=instructions,
+        agent=orig.agent,
+        action=orig.action,
+        target_files=orig.target_files,
+        context=orig.context,
+        priority=orig.priority,
+        agent_type=orig.agent_type,
+    )
+    return new_task
+
+
+def check_status(task_id: str, project_root: str | Path | None = None) -> Task | None:
     """Check the current status of a delegated task."""
     from pathlib import Path
     from .config import load_config
 
     if project_root is None:
         project_root = str(Path.cwd())
+    else:
+        project_root = str(Path(project_root))
 
     cfg = load_config(project_root)
     bridge_dir = Path(project_root) / cfg.get("bridge", {}).get(
@@ -86,7 +133,7 @@ def check_status(task_id: str, project_root: str | None = None) -> Task | None:
 
 def list_tasks(
     status: TaskStatus | None = None,
-    project_root: str | None = None,
+    project_root: str | Path | None = None,
 ) -> list[Task]:
     """List all tasks, optionally filtered by status."""
     from pathlib import Path
@@ -94,6 +141,8 @@ def list_tasks(
 
     if project_root is None:
         project_root = str(Path.cwd())
+    else:
+        project_root = str(Path(project_root))
 
     cfg = load_config(project_root)
     bridge_dir = Path(project_root) / cfg.get("bridge", {}).get(

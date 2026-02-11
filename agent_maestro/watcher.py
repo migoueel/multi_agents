@@ -59,13 +59,13 @@ class BridgeWatcher:
     def __init__(
         self,
         queue: TaskQueue,
-        project_root: str,
+        project_root: str | Path,
         runner: Optional[BaseRunner] = None,
         poll_interval: float = 3.0,
         max_workers: int = 1,
     ):
         self.queue = queue
-        self.project_root = project_root
+        self.project_root = str(Path(project_root))
         self.runner = runner or CopilotRunner()
         self.poll_interval = poll_interval
         self.max_workers = max_workers
@@ -127,20 +127,26 @@ class BridgeWatcher:
         if not pending:
             return
 
-        # Pick the highest-priority pending task
-        task = pending[0]
-        _log("📋", f"Found pending task: {task}", _C.BLUE)
+        # Pick the highest-priority pending task(s) and claim as many as we have capacity for
+        while len(self._active_tasks) < self.max_workers:
+            pending = self.queue.get_pending_tasks()
+            if not pending:
+                break
 
-        try:
-            self.queue.claim_task(task.id)
-            _log("🔄", f"Claimed task [{task.id}] → RUNNING", _C.YELLOW)
-        except ValueError as e:
-            _log("⚠️ ", f"Could not claim task [{task.id}]: {e}", _C.RED)
-            return
+            task = pending[0]
+            _log("📋", f"Found pending task: {task}", _C.BLUE)
 
-        # Dispatch to runner in a thread
-        future = executor.submit(self._execute_task, task)
-        self._active_tasks[task.id] = future
+            try:
+                claimed = self.queue.claim_task(task.id)
+                _log("🔄", f"Claimed task [{claimed.id}] → RUNNING", _C.YELLOW)
+            except ValueError as e:
+                _log("⚠️ ", f"Could not claim task [{task.id}]: {e}", _C.RED)
+                # Try next pending task / iteration
+                continue
+
+            # Dispatch to runner in a thread using the claimed (fresh) Task object
+            future = executor.submit(self._execute_task, claimed)
+            self._active_tasks[claimed.id] = future
 
     def _execute_task(self, task: Task) -> None:
         """Run a task through the runner and record the result."""
@@ -195,6 +201,7 @@ def main():
         copilot_command=cli_cfg.get("command", "copilot"),
         model=cli_cfg.get("model", "gpt-5-mini"),
         allow_all_tools=cli_cfg.get("allow_all_tools", True),
+        allow_all_paths=cli_cfg.get("allow_all_paths", True),
         extra_args=cli_cfg.get("extra_args", []),
         timeout_seconds=bridge_cfg.get("task_timeout_seconds", 300),
     )

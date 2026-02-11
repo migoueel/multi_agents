@@ -8,6 +8,7 @@ and returns a RunResult.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 from ..protocol import Task, RunResult
 
@@ -23,7 +24,7 @@ class BaseRunner(ABC):
     """
 
     @abstractmethod
-    def execute(self, task: Task, project_root: str) -> RunResult:
+    def execute(self, task: Task, project_root: str | Path) -> RunResult:
         """
         Execute a task using the sub-agent.
 
@@ -36,7 +37,7 @@ class BaseRunner(ABC):
         """
         ...
 
-    def build_prompt(self, task: Task) -> str:
+    def build_prompt(self, task: Task, project_root: str | None = None) -> str:
         """
         Build a natural-language prompt from a Task.
         Subclasses can override for agent-specific formatting.
@@ -59,3 +60,45 @@ class BaseRunner(ABC):
         )
 
         return "\n\n".join(parts)
+
+    def validate_target_files(self, target_files: list[str], project_root: str) -> list[str]:
+        """Validate and normalize target file paths to prevent path traversal.
+
+        Rules:
+        1. Reject absolute paths.
+        2. Reject any path containing '..' segments.
+        3. Resolve each path relative to project_root and ensure the resolved
+           path is inside project_root.
+        4. Return a list of validated relative paths (relative to project_root).
+        """
+        if not target_files:
+            return []
+
+        project_root_path = Path(project_root).resolve()
+        validated: list[str] = []
+
+        for p in target_files:
+            if not isinstance(p, str) or p == "":
+                raise ValueError(f"Invalid target file: {p!r}")
+
+            candidate = Path(p)
+
+            # Reject absolute paths
+            if candidate.is_absolute():
+                raise ValueError(f"Absolute paths are not allowed: {p}")
+
+            # Reject paths containing '..' segments
+            if ".." in candidate.parts:
+                raise ValueError(f"Parent directory segments ('..') are not allowed: {p}")
+
+            # Resolve against project root and ensure it's inside project_root
+            resolved = (project_root_path / candidate).resolve()
+            try:
+                rel = resolved.relative_to(project_root_path)
+            except Exception:
+                raise ValueError(f"Resolved path escapes project root: {p} -> {resolved}")
+
+            # Return relative path string (use OS-native path sep)
+            validated.append(str(rel))
+
+        return validated

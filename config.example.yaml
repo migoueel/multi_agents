@@ -16,6 +16,7 @@ runners:
     command: copilot
     model: gpt-5-mini
     allow_all_tools: true
+    allow_all_paths: true  # Required for file editing in non-interactive mode
     extra_args: []
 
 project:

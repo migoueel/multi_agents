@@ -3,11 +3,22 @@ Agent Maestro Protocol — Task schema and status definitions.
 
 This module defines the canonical data structures used by the entire system:
 orchestrator, queue, watcher, and runners all speak this protocol.
+
+Assumptions and edge cases:
+- save() writes atomically by writing to a temporary file in the same
+  directory and then using os.replace to publish the final file. This
+  ensures other processes will either see the old or the new complete
+  file, not a partial write.
+- fsync is attempted where supported to reduce data loss on crashes.
+- from_file still reads the whole file; callers should handle JSON errors
+  and may choose to quarantine malformed files.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -106,8 +117,36 @@ class Task:
         return cls.from_json(Path(path).read_text(encoding="utf-8"))
 
     def save(self, path: Path | str) -> None:
-        """Save the task to a JSON file."""
-        Path(path).write_text(self.to_json(), encoding="utf-8")
+        """Save the task to a JSON file atomically.
+
+        Writes to a temporary file in the same directory, fsyncs if possible,
+        and then atomically replaces the target file using os.replace.
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = self.to_json()
+        tmp = None
+        try:
+            # Create unpredictable temporary file in the same directory
+            # and write data ensuring it is flushed and fsynced.
+            with tempfile.NamedTemporaryFile(delete=False, dir=path.parent, prefix=".task_", suffix=".tmp", mode="w", encoding="utf-8") as tf:
+                tmp = Path(tf.name)
+                tf.write(text)
+                tf.flush()
+                try:
+                    os.fsync(tf.fileno())
+                except (AttributeError, OSError):
+                    # fsync may not be available on some platforms/filesystems
+                    pass
+            # Atomically replace the final file
+            os.replace(str(tmp), str(path))
+        finally:
+            # Clean up leftover tmp if it still exists
+            try:
+                if tmp is not None and tmp.exists():
+                    tmp.unlink()
+            except Exception:
+                pass
 
     # ── Lifecycle helpers ────────────────────────────────────────────
 
@@ -123,6 +162,9 @@ class Task:
         self.status = TaskStatus.FAILED
         self.error = error
         self.completed_at = datetime.now(timezone.utc).isoformat()
+
+    def is_terminal(self) -> bool:
+        return self.status in {TaskStatus.COMPLETED, TaskStatus.FAILED}
 
     @property
     def filename(self) -> str:

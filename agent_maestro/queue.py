@@ -11,16 +11,29 @@ under the `.agent_bridge/` root:
     └── failed/        # Failed tasks with error info
 
 Moving a task between directories is the atomic status transition.
+
+Assumptions and edge cases:
+- Claiming a task is implemented as an atomic filesystem rename from
+  pending/ -> running/ using os.replace. If the source is missing at
+  replace time it is treated as already-claimed by another process.
+- _move_task uses os.replace to perform atomic moves and reports an
+  explicit FileNotFoundError when the source is gone.
+- list_tasks will quarantine malformed JSON files into a quarantine/
+  directory instead of silently skipping them.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import logging
 from pathlib import Path
 from typing import Optional
 
 from .protocol import Task, TaskStatus
+
+logger = logging.getLogger(__name__)
 
 
 # Map each status to its subdirectory name
@@ -85,6 +98,7 @@ class TaskQueue:
         )
         dest = self._dir_for(TaskStatus.PENDING) / task.filename
         task.save(dest)
+        logger.info("Created task %s at %s", task.id, dest)
         return task
 
     def get_task(self, task_id: str) -> Optional[Task]:
@@ -92,12 +106,14 @@ class TaskQueue:
         Find a task by ID across all status directories.
         Returns None if not found.
         """
-        filename = f"task_{task_id}.json"
-        for status_dir in _STATUS_DIRS.values():
-            path = self.root / status_dir / filename
-            if path.exists():
-                return Task.from_file(path)
-        return None
+        path = self._find_task_path(task_id)
+        if path is None:
+            return None
+        try:
+            return Task.from_file(path)
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.warning("Failed to parse task %s: %s", path, e)
+            return None
 
     def _find_task_path(self, task_id: str) -> Optional[Path]:
         """Locate the file path for a task by ID."""
@@ -108,39 +124,128 @@ class TaskQueue:
                 return path
         return None
 
+    def _replace_status_file(self, task_id: str, from_status: TaskStatus, to_status: TaskStatus) -> Path:
+        """
+        Atomically move a task file from one status directory to another.
+        Raises FileNotFoundError if the source is missing to indicate a
+        concurrent move/claim by another process.
+        """
+        filename = f"task_{task_id}.json"
+        src = self._dir_for(from_status) / filename
+        dst_dir = self._dir_for(to_status)
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        dst = dst_dir / filename
+
+        try:
+            os.replace(str(src), str(dst))
+            logger.info("Atomically moved %s -> %s", src, dst)
+        except FileNotFoundError:
+            logger.error("Failed to move task %s: source not found %s", task_id, src)
+            raise FileNotFoundError(f"Task {task_id} was moved by another process")
+        except OSError as e:
+            logger.error("Failed to move task %s from %s to %s: %s", task_id, src, dst, e)
+            raise
+
+        return dst
+
     def _move_task(self, task: Task, new_status: TaskStatus) -> Path:
         """
-        Move a task file from its current directory to the new status dir.
-        Updates the task's status field and re-saves.
+        Atomically move a task file from its current directory to the new
+        status dir using os.replace. If another process removed the
+        source before replace, raise FileNotFoundError to indicate a
+        conflicting move.
+
+        Updates the task's status field and re-saves atomically.
         """
         old_path = self._find_task_path(task.id)
         if old_path is None:
             raise FileNotFoundError(f"Task {task.id} not found in queue")
 
         new_dir = self._dir_for(new_status)
+        new_dir.mkdir(parents=True, exist_ok=True)
         new_path = new_dir / task.filename
-        
-        # Update and save to new location, then remove old
-        task.save(new_path)
-        if old_path != new_path:
-            old_path.unlink(missing_ok=True)
+
+        if old_path == new_path:
+            # Same location — just update contents
+            task.save(new_path)
+            logger.info("Updated task %s in place at %s", task.id, new_path)
+            return new_path
+
+        try:
+            # Atomic filesystem move/replace
+            os.replace(str(old_path), str(new_path))
+            logger.info("Atomically moved %s -> %s", old_path, new_path)
+        except FileNotFoundError:
+            # Source disappeared — someone else claimed/moved it
+            logger.error("Failed to move task %s: source not found %s", task.id, old_path)
+            raise FileNotFoundError(f"Task {task.id} was moved by another process")
+        except OSError as e:
+            logger.error("Failed to move task %s from %s to %s: %s", task.id, old_path, new_path, e)
+            raise
+
+        # Now update the task content atomically at the new location
+        try:
+            task.save(new_path)
+            logger.info("Saved updated task %s at %s", task.id, new_path)
+        except Exception as e:
+            logger.error("Failed to save task %s after move: %s", task.id, e)
+            raise
 
         return new_path
 
     def claim_task(self, task_id: str) -> Task:
         """
-        Move a task from PENDING → RUNNING.
-        Raises ValueError if the task is not in PENDING state.
+        Atomically move a task from PENDING → RUNNING by renaming the file
+        from pending/ to running/. If the source file is missing at rename
+        time it is treated as already claimed by another process.
         """
-        task = self.get_task(task_id)
-        if task is None:
+        filename = f"task_{task_id}.json"
+        pending_path = self._dir_for(TaskStatus.PENDING) / filename
+        running_dir = self._dir_for(TaskStatus.RUNNING)
+        running_dir.mkdir(parents=True, exist_ok=True)
+        running_path = running_dir / filename
+
+        if not pending_path.exists():
+            # Check if task exists in another status directory
+            task = self.get_task(task_id)
+            if task is not None:
+                logger.info("Claim attempted for %s but status is %s, expected PENDING", task_id, task.status)
+                raise ValueError(f"Task {task_id} is {task.status.value}, expected PENDING")
+            logger.error("Claim attempted for %s but not found", task_id)
             raise ValueError(f"Task {task_id} not found")
+
+        # Delegate atomic move to helper which preserves race semantics
+        try:
+            new_path = self._replace_status_file(task_id, TaskStatus.PENDING, TaskStatus.RUNNING)
+            logger.info("Atomically claimed task %s: %s -> %s", task_id, pending_path, new_path)
+        except FileNotFoundError:
+            logger.info("Claim race: task %s missing at rename time", task_id)
+            raise ValueError(f"Task {task_id} already claimed")
+        except OSError as e:
+            logger.error("Failed to claim task %s: %s", task_id, e)
+            raise
+
+        # Load, mark running and save atomically
+        try:
+            task = Task.from_file(new_path)
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            quarantine_dir = self.root / "quarantine"
+            quarantine_dir.mkdir(parents=True, exist_ok=True)
+            qpath = quarantine_dir / running_path.name
+            try:
+                os.replace(str(new_path), str(qpath))
+                logger.warning("Quarantined malformed task %s -> %s: %s", new_path, qpath, e)
+            except FileNotFoundError:
+                logger.warning("Malformed task disappeared before quarantine: %s", new_path)
+            except Exception as ex:
+                logger.error("Failed to quarantine malformed task %s: %s", new_path, ex)
+            raise ValueError(f"Task {task_id} file is malformed") from e
         if task.status != TaskStatus.PENDING:
-            raise ValueError(
-                f"Task {task_id} is {task.status.value}, expected PENDING"
-            )
+            logger.error("Claimed task %s had unexpected status %s", task_id, task.status)
+            raise ValueError(f"Task {task_id} had unexpected status {task.status}")
         task.mark_running()
-        self._move_task(task, TaskStatus.RUNNING)
+        task.save(new_path)
+        logger.info("Task %s marked RUNNING", task_id)
         return task
 
     def complete_task(self, task_id: str, result: str) -> Task:
@@ -184,8 +289,19 @@ class TaskQueue:
             for file in dir_path.glob("task_*.json"):
                 try:
                     tasks.append(Task.from_file(file))
-                except (json.JSONDecodeError, KeyError, TypeError):
-                    continue  # Skip malformed task files
+                except (json.JSONDecodeError, KeyError, TypeError) as e:
+                    # Quarantine malformed task files instead of silently skipping
+                    quarantine_dir = self.root / "quarantine"
+                    quarantine_dir.mkdir(parents=True, exist_ok=True)
+                    qpath = quarantine_dir / file.name
+                    try:
+                        os.replace(str(file), str(qpath))
+                        logger.warning("Quarantined malformed task %s -> %s: %s", file, qpath, e)
+                    except FileNotFoundError:
+                        logger.warning("Malformed task disappeared before quarantine: %s", file)
+                    except Exception as ex:
+                        logger.error("Failed to quarantine malformed task %s: %s", file, ex)
+                    continue
 
         tasks.sort(key=lambda t: (-t.priority, t.created_at))
         return tasks

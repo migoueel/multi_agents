@@ -1,5 +1,4 @@
-# Agent bridge task queue (runtime data)
-.agent_bridge/
+
 
 # Python
 __pycache__/
@@ -45,3 +44,4 @@ config.local.yaml
 # Editor folders
 .idea/
 
+.github\agents
